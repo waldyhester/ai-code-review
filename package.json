@@ -12,6 +12,11 @@
     "setup": "node setup.js",
     "start": "node src/index.js"
   },
+  "jest": {
+    "moduleNameMapper": {
+      "^@actions/github$": "<rootDir>/__mocks__/@actions/github.js"
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AleksandrFurmenkovOfficial/ai-code-review.git"

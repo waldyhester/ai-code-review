@@ -223,8 +223,6 @@ class OpenAIAgent extends BaseAIAgent {
      * Entrypoint called by the GitHub Action runner.
      */
     async doReview(changedFiles) {
-        let reviewSummary = "";
-
         /* simplify diff metadata to keep prompt small */
         const simpleChangedFiles = changedFiles.map((f) => ({
             filename: f.filename,
@@ -265,8 +263,7 @@ class OpenAIAgent extends BaseAIAgent {
                 tools: this.tools
             });
             const initialMessage = initial.choices[0].message;
-            reviewSummary = await this.handleMessageResponse(initialMessage, reviewState);
-            return reviewSummary;
+            return await this.handleMessageResponse(initialMessage, reviewState);
         } catch (error) {
             core.error(`OpenAI API error: ${error.message}`);
             if (error.response) {

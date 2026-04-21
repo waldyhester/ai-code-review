@@ -187,3 +187,5 @@ Be concise but thorough in your review.
 }
 
 module.exports = BaseAIAgent;
+// Expose for unit testing
+module.exports.SimpleMutex = SimpleMutex;

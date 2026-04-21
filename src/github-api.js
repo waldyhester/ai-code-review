@@ -32,8 +32,12 @@ class GitHubAPI {
      * Retrieves the content of a file and determines whether to show it as text
      * or mark it as binary.  The logic prefers hard information returned by
      * GitHub (diff patch / metadata) and avoids ad-hoc heuristics.
+     *
+     * @param {string|null|undefined} knownPatch - Optional patch string from a prior
+     *   diff call.  If a string (even empty), the file is text.  If null, the file
+     *   is binary.  If undefined (not provided), falls back to a compareCommits call.
      */
-    async getContent(owner, repo, baseRef, actualRef, filePath) {
+    async getContent(owner, repo, baseRef, actualRef, filePath, knownPatch = undefined) {
         core.info(`getContent(${baseRef}, ${actualRef}, ${filePath})`);
 
         try {
@@ -66,36 +70,42 @@ class GitHubAPI {
             // ─────────────  text / binary decision  ─────────────
             let isTextFile;
 
-            // 1.  If the file is part of the diff, trust the presence / absence of "patch".
-            try {
-                const { data: comparison } =
-                    await this.octokit.rest.repos.compareCommits({
-                        owner,
-                        repo,
-                        base: baseRef,
-                        head: actualRef,
-                    });
+            if (knownPatch !== undefined) {
+                // Caller already resolved patch info from a prior diff — skip compareCommits.
+                // A non-null knownPatch means the file has a text diff; null means binary.
+                isTextFile = knownPatch !== null;
+            } else {
+                // 1.  If the file is part of the diff, trust the presence / absence of "patch".
+                try {
+                    const { data: comparison } =
+                        await this.octokit.rest.repos.compareCommits({
+                            owner,
+                            repo,
+                            base: baseRef,
+                            head: actualRef,
+                        });
 
-                const diffEntry = comparison.files.find(
-                    f => f.filename === filePath
-                );
+                    const diffEntry = comparison.files.find(
+                        f => f.filename === filePath
+                    );
 
-                if (diffEntry) {
-                    isTextFile = diffEntry.patch !== undefined;
+                    if (diffEntry) {
+                        isTextFile = diffEntry.patch !== undefined;
+                    }
+                } catch (err) {
+                    // Failure here is not fatal; we'll fall back to metadata check below
+                    core.warning(`Diff check failed: ${err.message}`);
                 }
-            } catch (err) {
-                // Failure here is not fatal; we’ll fall back to metadata check below
-                core.warning(`Diff check failed: ${err.message}`);
-            }
 
-            // 2.  If the file was NOT in the diff (unchanged) or diff lookup failed,
-            //     rely only on GitHub’s metadata: if content is returned and is not
-            //     marked as truncated, we treat it as text. Otherwise — binary.
-            if (isTextFile === undefined) {
-                isTextFile =
-                    !!fileMetadata.content &&
-                    fileMetadata.encoding === "base64" &&
-                    fileMetadata.truncated !== true;
+                // 2.  If the file was NOT in the diff (unchanged) or diff lookup failed,
+                //     rely only on GitHub's metadata: if content is returned and is not
+                //     marked as truncated, we treat it as text. Otherwise — binary.
+                if (isTextFile === undefined) {
+                    isTextFile =
+                        !!fileMetadata.content &&
+                        fileMetadata.encoding === "base64" &&
+                        fileMetadata.truncated !== true;
+                }
             }
 
             if (!isTextFile) {
@@ -194,6 +204,16 @@ class GitHubAPI {
             head: headCommit,
         });
         return comparison.files || [];
+    }
+
+    async getCollaboratorPermissionLevel(owner, repo, username) {
+        core.info(`getCollaboratorPermissionLevel(${username})`);
+        const { data } = await this.octokit.rest.repos.getCollaboratorPermissionLevel({
+            owner,
+            repo,
+            username,
+        });
+        return data.permission;
     }
 }
 

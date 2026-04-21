@@ -192,7 +192,7 @@ class AnthropicAgent extends BaseAIAgent {
 
             return await this.handleMessageResponse(initialMessage, tools, reviewState);
         } catch (error) {
-            throw new Error(`Error during review: ${error.message}`);
+            throw new Error(`Error during review: ${error.message}`, { cause: error });
         }
     }
 

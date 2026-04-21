@@ -33,7 +33,6 @@ function sanitizeString(value, { maxLen = 10_000, context = "none" } = {}) {
     }
 }
 
-// eslint-disable-next-line no-unused-vars
 function sanitizeNumber(value, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
     const num = Number(value);
     if (Number.isNaN(num)) {
@@ -184,8 +183,7 @@ class InputProcessor {
                 .trim();
 
             if (newBaseCommit) {
-                core.info(`New base commit ${newBaseCommit}. Incremental review will be performed`);
-                this._baseCommit = newBaseCommit;
+                await this._tryUseIncrementalBase(newBaseCommit, lastReviewComment);
             }
         } else {
             core.info("No previous review comments found, reviewing all files in PR");
@@ -207,6 +205,55 @@ class InputProcessor {
         );
 
         core.info(`Found ${this._filteredDiffs.length} files to review`);
+    }
+
+    /**
+     * Validates a candidate incremental-base SHA extracted from a review comment
+     * and updates `this._baseCommit` only when ALL three checks pass:
+     *  1. Format — must be a 40-hex-char Git SHA.
+     *  2. Ancestry — must be a commit that belongs to this PR.
+     *  3. Permission — the comment author must have at least write access.
+     */
+    async _tryUseIncrementalBase(newBaseCommit, lastReviewComment) {
+        // 1. Validate SHA format
+        if (!/^[0-9a-f]{40}$/i.test(newBaseCommit)) {
+            core.warning(`Ignoring malformed base commit SHA: "${newBaseCommit}"`);
+            return;
+        }
+
+        // 2. Verify the commit belongs to this PR (prevents arbitrary SHA injection)
+        try {
+            const prCommits = await this._githubAPI.listPRCommits(this._owner, this._repo, this._pullNumber);
+            if (!prCommits.some(c => c.sha === newBaseCommit)) {
+                core.warning(`Commit ${newBaseCommit} is not part of PR #${this._pullNumber}, ignoring`);
+                return;
+            }
+        } catch (err) {
+            core.warning(`Could not verify commit ancestry: ${err.message}`);
+            return;
+        }
+
+        // 3. Verify the comment author has sufficient repository permissions
+        try {
+            const authorLogin = lastReviewComment.user && lastReviewComment.user.login;
+            if (!authorLogin) {
+                core.warning(`Cannot determine comment author, ignoring commit ${newBaseCommit}`);
+                return;
+            }
+            const permLevel = await this._githubAPI.getCollaboratorPermissionLevel(
+                this._owner, this._repo, authorLogin
+            );
+            if (!["admin", "write", "maintain"].includes(permLevel)) {
+                core.warning(`Comment author "${authorLogin}" lacks write permission (level: ${permLevel}), ignoring commit ${newBaseCommit}`);
+                return;
+            }
+        } catch (err) {
+            core.warning(`Could not verify author permissions: ${err.message}`);
+            return;
+        }
+
+        core.info(`New base commit ${newBaseCommit}. Incremental review will be performed`);
+        this._baseCommit = newBaseCommit;
     }
 
     _filterChangedFiles(changedFiles, includeExtensions, excludeExtensions, includePaths, excludePaths) {
@@ -253,8 +300,18 @@ class InputProcessor {
     }
 
     _setupReviewTools() {
-        this._fileContentGetter = filePath =>
-            this._githubAPI.getContent(this._owner, this._repo, this._baseCommit, this._headCommit, filePath);
+        this._fileContentGetter = filePath => {
+            const entry = this._filteredDiffs.find(f => f.filename === filePath);
+            // Pass patch info from the already-fetched diff so getContent() can skip a
+            // redundant compareCommits call.  null → binary file; undefined → not in
+            // filteredDiffs (fall back to diff detection inside getContent).
+            const knownPatch = entry !== undefined
+                ? (entry.patch !== undefined ? entry.patch : null)
+                : undefined;
+            return this._githubAPI.getContent(
+                this._owner, this._repo, this._baseCommit, this._headCommit, filePath, knownPatch
+            );
+        };
 
         this._fileCommentator = async (comment, filePath, side, startLineNumber, endLineNumber) => {
             await this._githubAPI.createReviewComment(
@@ -303,3 +360,7 @@ class InputProcessor {
 }
 
 module.exports = InputProcessor;
+// Expose internal helpers for unit testing
+module.exports._sanitizeString = sanitizeString;
+module.exports._sanitizeBool = sanitizeBool;
+module.exports._sanitizePath = sanitizePath;
