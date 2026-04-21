@@ -105,6 +105,7 @@ class OpenAIAgent extends BaseAIAgent {
                 );
             }
             reviewState.iterationCount++;
+            this.captureReasoningContent(message);
 
             /* track assistant reply */
             reviewState.messageHistory.push({
@@ -219,12 +220,34 @@ class OpenAIAgent extends BaseAIAgent {
         } // end while
     }
 
+    captureReasoningContent(message) {
+        if (!message || typeof message !== "object") {
+            return;
+        }
+
+        if (typeof message.reasoning_content === "string") {
+            this.addReasoningContent(message.reasoning_content);
+        }
+
+        if (Array.isArray(message.content)) {
+            message.content.forEach(contentPart => {
+                if (!contentPart || typeof contentPart !== "object") {
+                    return;
+                }
+                if (typeof contentPart.reasoning_content === "string") {
+                    this.addReasoningContent(contentPart.reasoning_content);
+                }
+                if (contentPart.type === "reasoning" && typeof contentPart.text === "string") {
+                    this.addReasoningContent(contentPart.text);
+                }
+            });
+        }
+    }
+
     /**
      * Entrypoint called by the GitHub Action runner.
      */
     async doReview(changedFiles) {
-        let reviewSummary = "";
-
         /* simplify diff metadata to keep prompt small */
         const simpleChangedFiles = changedFiles.map((f) => ({
             filename: f.filename,
@@ -265,8 +288,7 @@ class OpenAIAgent extends BaseAIAgent {
                 tools: this.tools
             });
             const initialMessage = initial.choices[0].message;
-            reviewSummary = await this.handleMessageResponse(initialMessage, reviewState);
-            return reviewSummary;
+            return await this.handleMessageResponse(initialMessage, reviewState);
         } catch (error) {
             core.error(`OpenAI API error: ${error.message}`);
             if (error.response) {

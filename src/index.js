@@ -1,7 +1,5 @@
 const InputProcessor = require("./input-processor");
 const core = require("./core-wrapper");
-const { AI_REVIEW_COMMENT_PREFIX, SUMMARY_SEPARATOR } = require("./constants");
-
 const main = async () => {
     const inputProcessor = new InputProcessor();
 
@@ -19,13 +17,10 @@ const main = async () => {
             throw new Error('AI Agent did not return a valid review summary');
         }
 
-        const commentBody = `${AI_REVIEW_COMMENT_PREFIX}${inputProcessor.headCommit}${SUMMARY_SEPARATOR}${reviewSummary}`;
-        await inputProcessor.githubAPI.createPRComment(
-            inputProcessor.owner, 
-            inputProcessor.repo, 
-            inputProcessor.pullNumber, 
-            commentBody
-        );
+        const reasoningContent = typeof aiAgent.getReasoningContent === "function"
+            ? aiAgent.getReasoningContent()
+            : "";
+        await inputProcessor.publishReview(reviewSummary, reasoningContent);
 
     } catch (error) {
         if (inputProcessor.failAction) {            

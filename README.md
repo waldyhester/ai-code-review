@@ -5,6 +5,13 @@
 
 Perform code review using various AI models from OpenAI, Anthropic, Google, X, Deepseek or Perplexity to analyze and provide feedback on your code. This GitHub Action helps improve the code quality by automatically reviewing pull requests, focusing on specified file extensions, and excluding specific paths.
 
+### Review Output Behavior
+
+- Publishes a native **Pull Request Review** (not a simple issue comment).
+- Publishes inline comments in **batched mode** in the same review submission.
+- Adds native hidden markers to identify AI-generated artifacts and performs cleanup of previous marked artifacts before posting a new review.
+- Adds a **Reasoning Content** section in the final review body when the selected provider returns reasoning data.
+
 ## Inputs
 
 ***token*** - Required. This GitHub token is used for authentication and to access your GitHub repository.

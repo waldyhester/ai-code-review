@@ -4,9 +4,12 @@
 
 // Comment prefix used to identify AI review comments
 const AI_REVIEW_COMMENT_PREFIX = "AI review done up to commit: ";
+const AI_REVIEW_NATIVE_MARKER = "<!-- ai-code-review:pr-review -->";
+const AI_REVIEW_INLINE_MARKER = "<!-- ai-code-review:inline -->";
 
 // Separator for the summary section in review comments
 const SUMMARY_SEPARATOR = "\n\n### AI Review Summary:\n";
+const REASONING_CONTENT_SEPARATOR = "\n\n### Reasoning Content:\n";
 
 // Maximum number of iterations for AI review process to prevent infinite loops
 const MAX_REVIEW_ITERATIONS = 142;
@@ -22,7 +25,10 @@ const MAX_CACHE_ENTRIES = 1000;
 
 module.exports = {
     AI_REVIEW_COMMENT_PREFIX,
+    AI_REVIEW_NATIVE_MARKER,
+    AI_REVIEW_INLINE_MARKER,
     SUMMARY_SEPARATOR,
+    REASONING_CONTENT_SEPARATOR,
     MAX_REVIEW_ITERATIONS,
     MAX_FILE_SIZE_BYTES,
     LINE_SPAN,

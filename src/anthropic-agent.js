@@ -192,7 +192,7 @@ class AnthropicAgent extends BaseAIAgent {
 
             return await this.handleMessageResponse(initialMessage, tools, reviewState);
         } catch (error) {
-            throw new Error(`Error during review: ${error.message}`);
+            throw new Error(`Error during review: ${error.message}`, { cause: error });
         }
     }
 
@@ -200,6 +200,7 @@ class AnthropicAgent extends BaseAIAgent {
         if (!message || !message.content) {
             throw new Error("Invalid response from Anthropic API");
         }
+        this.captureReasoningContent(message);
 
         reviewState.iterationCount++;
         if (reviewState.iterationCount >= reviewState.maxIterations) {
@@ -293,6 +294,23 @@ class AnthropicAgent extends BaseAIAgent {
         });
 
         return this.handleMessageResponse(nextMessage, tools, reviewState);
+    }
+
+    captureReasoningContent(message) {
+        if (!message || !Array.isArray(message.content)) {
+            return;
+        }
+        message.content.forEach(contentPart => {
+            if (!contentPart || typeof contentPart !== "object") {
+                return;
+            }
+            if (contentPart.type === "thinking" && typeof contentPart.thinking === "string") {
+                this.addReasoningContent(contentPart.thinking);
+            }
+            if (contentPart.type === "text" && typeof contentPart.reasoning_content === "string") {
+                this.addReasoningContent(contentPart.reasoning_content);
+            }
+        });
     }
 }
 

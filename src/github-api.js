@@ -123,6 +123,47 @@ class GitHubAPI {
         });
     }
 
+    async createPRReview(owner, repo, prNumber, commitId, body, comments = []) {
+        core.info(`createPRReview(comments=${comments.length})`);
+        const normalizedComments = comments
+            .filter(comment => comment && comment.path && comment.body)
+            .map(comment => {
+                const side = comment.side || "RIGHT";
+                const startLine = Number(comment.startLineNumber);
+                const endLine = Number(comment.endLineNumber);
+
+                if (Number.isInteger(startLine) && Number.isInteger(endLine) && startLine > 0 && endLine > 0 && startLine !== endLine) {
+                    return {
+                        path: comment.path,
+                        body: comment.body,
+                        side,
+                        start_side: side,
+                        start_line: startLine,
+                        line: endLine
+                    };
+                }
+
+                const singleLine = Number.isInteger(startLine) && startLine > 0 ? startLine : endLine;
+                return {
+                    path: comment.path,
+                    body: comment.body,
+                    side,
+                    line: singleLine
+                };
+            })
+            .filter(comment => Number.isInteger(comment.line) && comment.line > 0);
+
+        await this.octokit.rest.pulls.createReview({
+            owner,
+            repo,
+            pull_number: prNumber,
+            commit_id: commitId,
+            event: "COMMENT",
+            body,
+            comments: normalizedComments
+        });
+    }
+
     async createReviewComment(
         owner,
         repo,
@@ -174,6 +215,69 @@ class GitHubAPI {
             { owner, repo, issue_number: prNumber }
         );
         return comments;
+    }
+
+    async deletePRComment(owner, repo, commentId) {
+        core.info(`deletePRComment(${commentId})`);
+        await this.octokit.rest.issues.deleteComment({
+            owner,
+            repo,
+            comment_id: commentId
+        });
+    }
+
+    async listPRReviews(owner, repo, prNumber) {
+        core.info(`listPRReviews()`);
+        const reviews = await this.octokit.paginate(
+            this.octokit.rest.pulls.listReviews,
+            { owner, repo, pull_number: prNumber }
+        );
+        return reviews;
+    }
+
+    async listPRReviewComments(owner, repo, prNumber) {
+        core.info(`listPRReviewComments()`);
+        const comments = await this.octokit.paginate(
+            this.octokit.rest.pulls.listReviewComments,
+            { owner, repo, pull_number: prNumber }
+        );
+        return comments;
+    }
+
+    async deletePRReviewComment(owner, repo, commentId) {
+        core.info(`deletePRReviewComment(${commentId})`);
+        await this.octokit.rest.pulls.deleteReviewComment({
+            owner,
+            repo,
+            comment_id: commentId
+        });
+    }
+
+    async cleanupAIGeneratedArtifacts(owner, repo, prNumber, nativeMarker, inlineMarker, legacyPrefix) {
+        core.info(`cleanupAIGeneratedArtifacts(${prNumber})`);
+
+        const issueComments = await this.listPRComments(owner, repo, prNumber);
+        const issueCommentsToDelete = issueComments.filter(comment => {
+            if (!comment || typeof comment.body !== "string") {
+                return false;
+            }
+            return comment.body.includes(nativeMarker) || comment.body.startsWith(legacyPrefix);
+        });
+
+        for (const comment of issueCommentsToDelete) {
+            await this.deletePRComment(owner, repo, comment.id);
+        }
+
+        const reviewComments = await this.listPRReviewComments(owner, repo, prNumber);
+        const reviewCommentsToDelete = reviewComments.filter(comment =>
+            comment &&
+            typeof comment.body === "string" &&
+            comment.body.includes(inlineMarker)
+        );
+
+        for (const comment of reviewCommentsToDelete) {
+            await this.deletePRReviewComment(owner, repo, comment.id);
+        }
     }
 
     async listPRCommits(owner, repo, prNumber) {

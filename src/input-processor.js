@@ -10,7 +10,13 @@ const GoogleAgent = require("./google-agent");
 const DeepseekAgent = require("./deepseek-agent");
 const XAgent = require("./x-agent");
 const PerplexityAgent = require("./perplexity-agent");
-const { AI_REVIEW_COMMENT_PREFIX, SUMMARY_SEPARATOR } = require("./constants");
+const {
+    AI_REVIEW_COMMENT_PREFIX,
+    AI_REVIEW_NATIVE_MARKER,
+    AI_REVIEW_INLINE_MARKER,
+    SUMMARY_SEPARATOR,
+    REASONING_CONTENT_SEPARATOR
+} = require("./constants");
 
 /* -------------------------------------------------------------------------- */
 /*                               Sanitizers                                   */
@@ -33,7 +39,6 @@ function sanitizeString(value, { maxLen = 10_000, context = "none" } = {}) {
     }
 }
 
-// eslint-disable-next-line no-unused-vars
 function sanitizeNumber(value, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
     const num = Number(value);
     if (Number.isNaN(num)) {
@@ -88,6 +93,7 @@ class InputProcessor {
         this._fileCommentator = null;
         this._reviewRulesFile = null;
         this._reviewRulesContent = null;
+        this._pendingReviewComments = [];
     }
 
     /* ----------------------------- Public API ------------------------------ */
@@ -172,23 +178,38 @@ class InputProcessor {
     }
 
     async _processChangedFiles() {
-        const comments = await this._githubAPI.listPRComments(this._owner, this._repo, this._pullNumber);
-        const lastReviewComment = [...comments].reverse().find(c => c.body && c.body.startsWith(AI_REVIEW_COMMENT_PREFIX));
+        const reviews = await this._githubAPI.listPRReviews(this._owner, this._repo, this._pullNumber);
+        const lastNativeReview = [...reviews].reverse().find(review =>
+            review &&
+            typeof review.body === "string" &&
+            review.body.includes(AI_REVIEW_NATIVE_MARKER) &&
+            review.body.includes(AI_REVIEW_COMMENT_PREFIX)
+        );
 
-        if (lastReviewComment) {
-            core.info(`Found last review comment: ${lastReviewComment.body.split("\n")[0]}`);
-            const newBaseCommit = lastReviewComment.body
-                .split(SUMMARY_SEPARATOR)[0]
-                .replace(AI_REVIEW_COMMENT_PREFIX, "")
-                .split(" ")[0]
-                .trim();
+        let newBaseCommit = null;
+        if (lastNativeReview) {
+            core.info(`Found last native AI review: ${lastNativeReview.id}`);
+            newBaseCommit = this._extractCommitHash(lastNativeReview.body);
+        }
 
-            if (newBaseCommit) {
-                core.info(`New base commit ${newBaseCommit}. Incremental review will be performed`);
-                this._baseCommit = newBaseCommit;
+        if (!newBaseCommit) {
+            const comments = await this._githubAPI.listPRComments(this._owner, this._repo, this._pullNumber);
+            const lastLegacyComment = [...comments].reverse().find(comment =>
+                comment &&
+                typeof comment.body === "string" &&
+                comment.body.startsWith(AI_REVIEW_COMMENT_PREFIX)
+            );
+            if (lastLegacyComment) {
+                core.info(`Found last legacy AI review comment: ${lastLegacyComment.id}`);
+                newBaseCommit = this._extractCommitHash(lastLegacyComment.body);
             }
+        }
+
+        if (newBaseCommit) {
+            core.info(`New base commit ${newBaseCommit}. Incremental review will be performed`);
+            this._baseCommit = newBaseCommit;
         } else {
-            core.info("No previous review comments found, reviewing all files in PR");
+            core.info("No previous AI review marker found, reviewing all files in PR");
         }
 
         const changedFiles = await this._githubAPI.getFilesBetweenCommits(
@@ -256,19 +277,57 @@ class InputProcessor {
         this._fileContentGetter = filePath =>
             this._githubAPI.getContent(this._owner, this._repo, this._baseCommit, this._headCommit, filePath);
 
-        this._fileCommentator = async (comment, filePath, side, startLineNumber, endLineNumber) => {
-            await this._githubAPI.createReviewComment(
-                this._owner,
-                this._repo,
-                this._pullNumber,
-                this._headCommit,
-                comment,
-                filePath,
+        this._fileCommentator = (comment, filePath, side, startLineNumber, endLineNumber) => {
+            this._pendingReviewComments.push({
+                path: filePath,
+                body: `${AI_REVIEW_INLINE_MARKER}\n${comment}`,
                 side,
                 startLineNumber,
                 endLineNumber
-            );
+            });
         };
+    }
+
+    _extractCommitHash(text) {
+        if (!text || typeof text !== "string") {
+            return null;
+        }
+
+        const prefixMatch = text.match(/AI review done up to commit:\s*([a-f0-9]{7,40})/i);
+        if (prefixMatch && prefixMatch[1]) {
+            return prefixMatch[1];
+        }
+
+        return null;
+    }
+
+    async publishReview(reviewSummary, reasoningContent = "") {
+        const reviewBodyParts = [
+            AI_REVIEW_NATIVE_MARKER,
+            `${AI_REVIEW_COMMENT_PREFIX}${this._headCommit}${SUMMARY_SEPARATOR}${reviewSummary}`
+        ];
+
+        if (reasoningContent && typeof reasoningContent === "string" && reasoningContent.trim()) {
+            reviewBodyParts.push(`${REASONING_CONTENT_SEPARATOR}${reasoningContent.trim()}`);
+        }
+
+        const reviewBody = reviewBodyParts.join("\n");
+        await this._githubAPI.cleanupAIGeneratedArtifacts(
+            this._owner,
+            this._repo,
+            this._pullNumber,
+            AI_REVIEW_NATIVE_MARKER,
+            AI_REVIEW_INLINE_MARKER,
+            AI_REVIEW_COMMENT_PREFIX
+        );
+        await this._githubAPI.createPRReview(
+            this._owner,
+            this._repo,
+            this._pullNumber,
+            this._headCommit,
+            reviewBody,
+            this._pendingReviewComments
+        );
     }
 
     /* ----------------------------- AI agent -------------------------------- */

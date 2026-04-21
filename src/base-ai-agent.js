@@ -41,6 +41,7 @@ class BaseAIAgent {
         this.fileCache = new Map();
         this.cacheMutex = new SimpleMutex();
         this.MAX_CACHE_ENTRIES = constants.MAX_CACHE_ENTRIES;
+        this.reasoningContents = [];
     }
 
     getSystemPrompt() {
@@ -175,6 +176,21 @@ Be concise but thorough in your review.
             this.handleError(error, "Error creating review comment", false);
             return `Error! Please ensure that the lines you specify for the comment are part of the DIFF! Error message: ${error.message}`;
         }
+    }
+
+    addReasoningContent(content) {
+        if (typeof content !== "string") {
+            return;
+        }
+        const trimmed = content.trim();
+        if (!trimmed) {
+            return;
+        }
+        this.reasoningContents.push(trimmed);
+    }
+
+    getReasoningContent() {
+        return this.reasoningContents.join("\n\n");
     }
 
     doReview(_changedFiles) {
