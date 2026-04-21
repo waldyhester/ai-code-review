@@ -46,8 +46,8 @@
   "homepage": "https://github.com/AleksandrFurmenkovOfficial/ai-code-review#readme",
   "dependencies": {
     "@actions/core": "^3.0.0",
-    "@actions/github": "^9.1.0",
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@actions/github": "^9.0.0",
+    "@anthropic-ai/sdk": "^0.90.0",
     "@google/generative-ai": "^0.24.1",
     "he": "^1.2.0",
     "openai": "^6.29.0",
@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.1.0",
+    "eslint": "^10.2.1",
     "jest": "^30.3.0"
   }
 }
